@@ -25,6 +25,7 @@ namespace ProducerConsumer {
 	class Storage {
 		std::queue<TItem *> items;
 		std::mutex mtx;
+		std::condition_variable cvar;
 	public:
 		~Storage() {
 			Item *item = nullptr;
@@ -51,12 +52,21 @@ namespace ProducerConsumer {
 		}
 		void waitGet(TItem *&item) {
 			std::unique_lock<std::mutex> lck(mtx);
-			while (items.empty()) {
-				lck.unlock();
-				chrono::seconds secs(3);
-				std::this_thread::sleep_for(secs);
-				lck.lock();
-			}
+			// #1
+//			while (items.empty()) {
+//				lck.unlock();
+//				chrono::seconds secs(3);
+//				std::this_thread::sleep_for(secs);
+//				lck.lock();
+//			}
+			// #2
+//			while (items.empty())
+//				cvar.wait(lck);
+			// #3
+			if  (items.empty())
+				cvar.wait(lck, [this]() {
+					return !items.empty();
+				});
 			
 			item = items.front();
 			items.pop();
@@ -72,6 +82,8 @@ namespace ProducerConsumer {
 			std::ostringstream msg;
 			msg << "Produced: " << item -> id << std::endl;
 			std::cout << msg.str();
+			
+			cvar.notify_one();
 		}
 	};
 	
@@ -86,7 +98,7 @@ namespace ProducerConsumer {
 		Worker(TStorage<TItem> &aStorage, int anId) : storage(aStorage), id(anId) {
 		}
 		void start() {
-			job = std::thread([this](){
+			job = std::thread([this]() {
 				work();
 			});
 		}
@@ -129,12 +141,10 @@ namespace ProducerConsumer {
 		}
 	protected:
 		virtual void work() {
-			for (int count = 0; count < numToCons;) {
+			for (int count = 0; count < numToCons; ++count) {
 				TItem *item = nullptr;
-				if (this -> storage.waitGet(item)) {
-					++count;
-					consume(item);
-				}
+				this -> storage.waitGet(item);
+				consume(item);
 			}
 		}
 	public:
