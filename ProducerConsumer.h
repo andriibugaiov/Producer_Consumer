@@ -21,12 +21,17 @@ namespace ProducerConsumer {
 		}
 	};
 	
+	// Synchronized bounded storage
 	template<typename TItem>
 	class Storage {
+		int maxSize;
 		std::queue<TItem *> items;
 		std::mutex mtx;
-		std::condition_variable cvar;
+		std::condition_variable consCondVar;
+		std::condition_variable prodCondVar;
 	public:
+		Storage(int aMaxSize = INT_MAX) : maxSize(aMaxSize) {
+		}
 		~Storage() {
 			Item *item = nullptr;
 			while (items.empty()) {
@@ -43,11 +48,12 @@ namespace ProducerConsumer {
 			
 			item = items.front();
 			items.pop();
-			
 			std::ostringstream msg;
 			msg << "Consumed: " << item -> id << std::endl;
 			std::cout << msg.str();
 			
+			lck.unlock();
+			prodCondVar.notify_one();
 			return true;
 		}
 		void waitGet(TItem *&item) {
@@ -61,32 +67,55 @@ namespace ProducerConsumer {
 //			}
 			// #2
 //			while (items.empty())
-//				cvar.wait(lck);
+//				consCondVar.wait(lck);
 			// #3
-			if  (items.empty())
-				cvar.wait(lck, [this]() {
+			if (items.empty())
+				consCondVar.wait(lck, [this]() {
 					return !items.empty();
 				});
 			
 			item = items.front();
 			items.pop();
-			
 			std::ostringstream msg;
 			msg << "Consumed: " << item -> id << std::endl;
 			std::cout << msg.str();
-		}
-		void put(TItem *item) {
-			std::unique_lock<std::mutex> lck(mtx);
-			items.push(item);
 			
+			lck.unlock();
+			prodCondVar.notify_one();
+		}
+		bool tryPut(TItem *item) {
+			std::unique_lock<std::mutex> lck(mtx);
+			if (items.size() >= maxSize)
+				return false;
+			
+			items.push(item);
+			std::ostringstream msg;
+			msg << "Produced: " << item -> id << std::endl;
+			std::cout << msg.str();
+
+			lck.unlock();
+			consCondVar.notify_one();
+			return true;
+		}
+		void waitPut(TItem *item) {
+			std::unique_lock<std::mutex> lck(mtx);
+			
+			if (items.size() >= maxSize)
+				prodCondVar.wait(lck, [this]() {
+					return items.size() < maxSize;
+				});
+			
+			items.push(item);
 			std::ostringstream msg;
 			msg << "Produced: " << item -> id << std::endl;
 			std::cout << msg.str();
 			
-			cvar.notify_one();
+			lck.unlock();
+			consCondVar.notify_one();
 		}
 	};
 	
+	// Worker
 	template<typename TItem, template<typename> class TStorage>
 	class Worker {
 		std::thread job;
@@ -107,11 +136,12 @@ namespace ProducerConsumer {
 		}
 	};
 	
+	// Producer
 	template<typename TItem, template<typename> class TStorage>
 	class Producer : public Worker<TItem, TStorage> {
 		int numToProd;
 		Item *produce() {
-			chrono::seconds secs(2);
+			chrono::seconds secs(1);
 			std::this_thread::sleep_for(secs);
 			return Item::createItem();
 		}
@@ -120,21 +150,21 @@ namespace ProducerConsumer {
 			for (int count = 0; count < numToProd; ++count) {
 				Item *item = produce();
 				if (item)
-					this -> storage.put(item);
+					this -> storage.waitPut(item);
 			}
 		}
 	public:
 		Producer(TStorage<TItem> &aStorage, int anId, int aNumToProd = 0) : Worker<TItem, TStorage>(aStorage, anId), numToProd(aNumToProd) {}
 	};
 	
+	// Consumer
 	template<typename TItem, template<typename> class TStorage>
 	class Consumer : public Worker<TItem, TStorage> {
 		int numToCons;
 		void consume(Item *item) {
 			if (!item)
 				return;
-			
-			chrono::seconds secs(1);
+			chrono::seconds secs(3);
 			std::this_thread::sleep_for(secs);
 			delete item;
 			item = nullptr;
