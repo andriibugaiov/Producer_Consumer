@@ -21,7 +21,7 @@ namespace ProducerConsumer {
 		}
 	};
 	
-	// Synchronized bounded storage
+	// synchronized bounded storage
 	template<typename TItem>
 	class Storage {
 		int maxSize;
@@ -115,7 +115,7 @@ namespace ProducerConsumer {
 		}
 	};
 	
-	// Worker
+	// worker
 	template<typename TItem, template<typename> class TStorage>
 	class Worker {
 		std::thread job;
@@ -136,7 +136,7 @@ namespace ProducerConsumer {
 		}
 	};
 	
-	// Producer
+	// producer
 	template<typename TItem, template<typename> class TStorage>
 	class Producer : public Worker<TItem, TStorage> {
 		int numToProd;
@@ -157,7 +157,7 @@ namespace ProducerConsumer {
 		Producer(TStorage<TItem> &aStorage, int anId, int aNumToProd = 0) : Worker<TItem, TStorage>(aStorage, anId), numToProd(aNumToProd) {}
 	};
 	
-	// Consumer
+	// consumer
 	template<typename TItem, template<typename> class TStorage>
 	class Consumer : public Worker<TItem, TStorage> {
 		int numToCons;
@@ -204,25 +204,3 @@ namespace ProducerConsumer {
 			cons.wait();
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
